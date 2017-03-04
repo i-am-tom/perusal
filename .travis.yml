@@ -1,0 +1,11 @@
+language: node_js
+node_js:
+  - 6.5.0
+  - 7.5.0
+  - 7.6.0
+before_install:
+  - npm install -g purescript pulp bower
+install:
+  - bower install
+script:
+  - pulp build

@@ -1,0 +1,27 @@
+{
+  "name": "perusal",
+  "version": "1.0.0",
+  "description": "A PureScript library for making in-browser presentations.",
+  "main": "dist.js",
+  "directories": {
+    "test": "test"
+  },
+  "scripts": {
+    "build": "pulp browserify --to dist.js -O",
+    "test": "pulp test"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/i-am-tom/perusal.git"
+  },
+  "keywords": [
+    "purescript",
+    "presentation"
+  ],
+  "author": "Tom Harding <tomjharding@live.co.uk> (http://tjh.io/)",
+  "license": "MIT",
+  "bugs": {
+    "url": "https://github.com/i-am-tom/perusal/issues"
+  },
+  "homepage": "https://github.com/i-am-tom/perusal#readme"
+}
