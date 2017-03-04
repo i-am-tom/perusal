@@ -1,11 +1,14 @@
-module Main (load) where
+module Main (prepare) where
 
 import Prelude
 import Signal
 
 import Control.Monad.Eff (Eff)
 import Control.Monad.Eff.Console (CONSOLE, logShow)
-import Data.Array (length)
+import Data.Argonaut.Core (Json)
+import Data.Array (length, (!!))
+import Data.Maybe (Maybe(..))
+import Data.Config (read)
 import DOM (DOM)
 import Signal.DOM (keyPressed)
 
@@ -22,5 +25,19 @@ navigation boundary = do
     pure (foldp add' 0 $ merge left right)
   where add' a b = clamp 0 (boundary - 1) $ a + b
 
-load :: forall e. Eff (console :: CONSOLE, dom :: DOM | e) Unit
-load = navigation 10 >>= runSignal <<< (_ ~> logShow)
+prepare :: forall e
+         . Json
+        -> Eff ( console :: CONSOLE
+               , dom :: DOM | e
+               ) Unit
+prepare json = do
+    cursor <- navigation $ length config
+    runSignal $ map logShow $ cursor ~> elem' config
+  where
+    config :: Array String
+    config = read json
+
+    elem' :: Array String -> Int -> String
+    elem' xs n = case xs !! n of
+      Just x  -> x
+      Nothing -> "ERROR!!!"
