@@ -10,8 +10,7 @@
     "purescript-prelude": "^2.5.0",
     "purescript-console": "^2.0.0",
     "purescript-dom": "^3.5.1",
-    "purescript-signal": "^8.1.0",
-    "purescript-argonaut-core": "^2.0.1"
+    "purescript-signal": "^8.1.0"
   },
   "devDependencies": {
     "purescript-psci-support": "^2.0.0"
