@@ -1,24 +1,28 @@
-module Perusal.Navigation (navigation) where
+module Perusal.Navigation (movement) where
 
-import Control.Monad.Eff (Eff)
-import DOM (DOM)
-import Prelude ((<#>), ($), (+), (-), bind, clamp, id, negate, pure)
-import Signal (Signal, constant, filter, foldp, merge, sampleOn)
-import Signal.DOM (keyPressed)
+import Prelude (type (~>), otherwise)
 
--- | Return a given value whenever a given signal be true.
-replace :: forall a. a -> Signal Boolean -> Signal a
-replace x signal = whenTrue signal `sampleOn` constant x
-  where whenTrue = filter id false
+import Data.Maybe (fromMaybe, Maybe(Just))
+import Data.Set (member, Set)
+import Data.Tape (Tape, left, right)
 
--- | Move a cursor within a range from 0 to a boundary. The cursor's
--- | movements are controlled by left and right arrow key presses.
-navigation :: forall e. Int -> Eff (dom :: DOM | e) (Signal Int)
-navigation boundary = do
-    left  <- keyPressed 37 <#> replace (-1)
-    right <- keyPressed 39 <#> replace   1
+import FRP.Behavior (Behavior, step, sample_)
+import FRP.Behavior.Keyboard (keys)
+import FRP.Event (Event, fold)
+import FRP.Event.Keyboard (down)
 
-    pure $ foldp add' 0 $ left `merge` right
-  where
-    add' :: Int -> Int -> Int
-    add' a b = clamp 0 (boundary - 1) $ a + b
+keysDown :: Event (Set Int)
+keysDown = sample_ keys down
+
+movement :: forall a. Tape a -> Behavior (Tape a)
+movement deck = step deck (fold go keysDown deck)
+
+  where next :: forall b. Set Int -> Tape b -> Maybe (Tape b)
+        next keys | 37 `member` keys = left
+                  | 39 `member` keys = right
+                  | otherwise        = Just
+
+        go :: Set Int -> Tape ~> Tape
+        go keys tape = fromMaybe tape (next keys tape)
+
+-- state :: forall a. Tape a -> Behavior (Tape a)

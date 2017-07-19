@@ -1,28 +1,31 @@
-module Perusal.HTML (HTML, focus, sections) where
+module Perusal.HTML (render, toSlides) where
+
+import Prelude ((<<<), (<>), (*>), map, Unit)
 
 import Control.Monad.Eff (Eff)
-import Data.Array (mapWithIndex)
-import Data.Traversable (sequence_)
+import Data.Maybe (Maybe)
+import Data.Tape (fromArray, Tape(Tape))
+import Data.Traversable (traverse)
+
 import DOM (DOM)
-import Prelude (Unit, ($), (<<<), (==))
+import DOM.Node.Element (setAttribute)
+import DOM.Node.HTMLCollection (toArray)
+import DOM.Node.Types (HTMLCollection, Element)
 
--- | A made-up type to represent our elements.
-foreign import data HTML :: *
+-- | Show the focus element, hide everything else!
+render :: forall eff
+        . Tape Element
+        -> Eff ( dom :: DOM | eff) Unit
+render (Tape ls x rs) = traverse hide (ls <> rs) *> show x
 
--- | A list of all the "section" elements on the page.
-foreign import sections :: forall e
-                         . Eff (dom :: DOM | e) (Array HTML)
+  where hide :: Element -> Eff (dom :: DOM | eff) Unit
+        hide = setAttribute "style" "display:none"
 
--- | Change the display setting on a given HTML element.
-foreign import display :: forall e
-                        . String
-                       -> HTML
-                       -> Eff (dom :: DOM | e) Unit
+        show :: Element -> Eff (dom :: DOM | eff) Unit
+        show = setAttribute "style" "display:block"
 
--- | Show one particular section, and hide all the others.
-focus :: forall e. Int -> Array HTML -> Eff (dom :: DOM | e) Unit
-focus choice = traverseWithIndex mapper
-  where traverseWithIndex f = sequence_ <<< mapWithIndex f
-        mapper index = display $ if choice == index
-                                   then "block"
-                                   else "none"
+-- | Convert an HTML selection to a slide deck!
+toSlides :: forall eff
+          . HTMLCollection
+         -> Eff (dom :: DOM | eff) (Maybe (Tape Element))
+toSlides = map fromArray <<< toArray

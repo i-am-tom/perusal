@@ -1,17 +1,28 @@
 module Main where
 
-import Prelude (Unit, ($), bind, flip)
-import Signal ((~>), runSignal)
+import Prelude ((=<<), (<$>), bind, Unit)
 
 import Control.Monad.Eff (Eff)
-import Data.Array (length)
-import Perusal.HTML (focus, sections)
-import Perusal.Navigation (navigation)
+
+import Data.Maybe (Maybe(..))
 import DOM (DOM)
+import DOM.HTML (window)
+import DOM.HTML.Types (ALERT, htmlDocumentToDocument)
+import DOM.HTML.Window (document, alert)
+import DOM.Node.Document (getElementsByTagName)
+import FRP (FRP)
+import FRP.Behavior (animate)
 
-main :: forall e. Eff (dom :: DOM | e) Unit
+import Perusal.HTML (toSlides, render)
+import Perusal.Navigation (movement)
+
+main :: forall eff
+      . Eff (alert :: ALERT, dom :: DOM, frp :: FRP | eff) Unit
 main = do
-  slides <- sections
-  cursor <- navigation $ length slides
+  window'   <- window
+  document' <- htmlDocumentToDocument <$> document window'
+  tape      <- toSlides =<< getElementsByTagName "section" document'
 
-  runSignal $ cursor ~> flip focus slides
+  case tape of
+    Just slides -> animate (movement slides) render
+    Nothing -> alert "Where are your slides?" window'
