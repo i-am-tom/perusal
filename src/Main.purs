@@ -16,6 +16,7 @@ import FRP.Behavior (animate)
 import Perusal.HTML (toSlides, render)
 import Perusal.Navigation (movement)
 
+-- | Get the slides, attach the controls, run the thingy!
 main :: forall eff
       . Eff (alert :: ALERT, dom :: DOM, frp :: FRP | eff) Unit
 main = do
