@@ -1,6 +1,6 @@
 module Test.Main where
 
-import Prelude (($), (<>), (<$>), (>>=), Unit, discard, id, join, pure)
+import Prelude
 
 import Control.Comonad (extract)
 import Control.Extend (extend)
@@ -9,13 +9,18 @@ import Control.Monad.Eff.Console (CONSOLE, log)
 import Control.Monad.Eff.Exception (EXCEPTION)
 import Control.Monad.Eff.Random (RANDOM)
 import Data.Array (reverse, uncons) as A
-import Data.Foldable (foldl, foldMap, foldr)
-import Data.Identity (Identity(Identity))
+import Data.Foldable (foldMap)
 import Data.Maybe (Maybe(..))
 import Data.NonEmpty ((:|))
 import Data.Tape
-import Data.Traversable (sequence, traverse)
-
+  ( Tape(..)
+  , fromArray
+  , fromNonEmpty
+  , left, right
+  , reverse
+  , toArray
+  )
+import Data.Traversable (traverse)
 import Test.QuickCheck (quickCheck, (===))
 
 main :: forall eff. Eff ( console :: CONSOLE
@@ -56,16 +61,6 @@ main = do
   quickCheck $ \ls (x :: Int) rs ->
     (reverse $ Tape ls x rs) === Tape rs x ls
 
-  log "foldl"
-  quickCheck $ \ls (x :: Array Int) rs ->
-    join (A.reverse ls) <> x <> join rs
-      === foldl (<>) [] (Tape ls x rs)
-
-  log "foldr"
-  quickCheck $ \ls (x :: Array Int) rs ->
-    join (A.reverse ls) <> x <> join rs
-      === foldr (<>) [] (Tape ls x rs)
-
   log "foldMap"
   quickCheck $ \ls (x :: Array Int) rs ->
     join (A.reverse ls) <> x <> join rs
@@ -76,13 +71,10 @@ main = do
     traverse pure (Tape ls x rs)
       === [Tape ls x rs]
 
-  log "sequence"
+  log "bind"
   quickCheck $ \ls (x :: Int) rs ->
-    let
-      f x = [x]
-    in
-      sequence (f <$> Tape ls x rs)
-        === traverse f (Tape ls x rs)
+    (toArray $ (Tape ls x rs) >>= \y -> Tape [y] y [y])
+      === ((A.reverse ls <> [x] <> rs) >>= \y -> [y, y, y])
 
   log "extend"
   quickCheck $ \ls (x :: Int) rs ->

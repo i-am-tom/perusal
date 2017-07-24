@@ -1,27 +1,18 @@
 module Data.Tape where
 
-import Prelude ( class Eq
-               , class Functor
-               , class Ord
-               , class Show
-               , type (~>)
-               , (<<<), (<*>), (<$>), (<>), ($)
-               , compare, flip, id, map, pure, show
-               )
+import Prelude
 
-import Control.Applicative (class Applicative)
 import Control.Comonad (class Comonad)
 import Control.Extend (class Extend)
 import Data.Array (cons, uncons)
 import Data.Array (reverse) as A
-import Data.Foldable (class Foldable, foldl, foldMap, foldr)
+import Data.Foldable (class Foldable, foldMap, foldlDefault, foldrDefault)
 import Data.Function (on)
 import Data.Maybe (Maybe)
-import Data.Monoid (mempty)
 import Data.NonEmpty ((:|), NonEmpty)
 import Data.Profunctor.Strong ((&&&))
 import Data.String (joinWith)
-import Data.Traversable (class Traversable, sequence, traverse)
+import Data.Traversable (class Traversable, sequenceDefault, traverse)
 import Data.Unfoldable (unfoldr)
 
 
@@ -39,6 +30,12 @@ data Tape a = Tape (Array a) a (Array a)
 -- | start of the array.
 fromArray :: forall a. Array a -> Maybe (Tape a)
 fromArray = map (\{ head, tail } -> Tape [] head tail) <<< uncons
+
+
+-- | Flatten a Tape down into a regular Array. Nothing too special:
+-- | reverse the first list, then prepend it to the remainder.
+toArray :: Tape ~> Array
+toArray (Tape ls x rs) = A.reverse ls <> pure x <> rs
 
 
 -- | Convert a non-empty array to a tape. Because we have a type-level
@@ -95,6 +92,14 @@ instance ordTape :: Ord a => Ord (Tape a) where
   compare = compare `on` (foldMap pure :: Tape ~> Array)
 
 
+instance semigroupTape :: Semigroup (Tape a) where
+
+  -- | We have a semigroup instance by simply attaching other tapes to
+  -- | the end of ours and forgetting the read head. Note that Monoid
+  -- | is slightly harder (we'd need a special case for empty left).
+  append (Tape ls x rs) t = Tape ls x (rs <> toArray t)
+
+
 -- | Transform every item on the tape. PureScript can do the heavy
 -- | lifting on this one, and save us some boilerplate!
 derive instance functorTape :: Functor Tape
@@ -102,22 +107,20 @@ derive instance functorTape :: Functor Tape
 
 instance foldableTape :: Foldable Tape where
 
-  -- | Fold a tape up into a monoid accumulator. Note that this works
-  -- | from left-to-right, rather than in the way expressed by the
-  -- | under-the-hood implementation of the tape.
-  foldMap f (Tape ls x rs) = foldr (\l acc -> acc <> f l) mempty ls
-                          <> f x
-                          <> foldMap f rs
-
-
   -- | Fold a tape from the right across to the left.
   foldr :: forall a b. (a -> b -> b) -> b -> Tape a -> b
-  foldr f acc (Tape ls x rs) = foldl (flip f) (f x (foldr f acc rs)) ls
-
+  foldr f = foldrDefault f
 
   -- | Fold a tape from the left across to the right.
   foldl :: forall a b. (b -> a -> b) -> b -> Tape a -> b
-  foldl f acc (Tape ls x rs) = foldl f (f (foldr (flip f) acc ls) x) rs
+  foldl f = foldlDefault f
+
+  -- | Fold a tape up into a monoid accumulator. Note that this works
+  -- | from left-to-right, rather than in the way expressed by the
+  -- | under-the-hood implementation of the tape.
+  foldMap f (Tape ls x rs) = foldMap f (A.reverse ls)
+                          <> f x
+                          <> foldMap f rs
 
 
 instance traversableTape :: Traversable Tape where
@@ -129,7 +132,39 @@ instance traversableTape :: Traversable Tape where
 
   -- | Pull an inner context to the outside of a Tape.
   sequence :: forall a f. Applicative f => Tape (f a) -> f (Tape a)
-  sequence (Tape ls x rs) = Tape <$> sequence ls <*> x <*> sequence rs
+  sequence = sequenceDefault
+
+
+instance applyTape :: Apply Tape where
+
+  -- | Apply one tape of functions to another tape. Probably not massively
+  -- | useful in and of itself, but it falls out of the helpful definition of
+  -- | bind, so we'll take it for free!
+  apply = ap
+
+
+instance applicativeTape :: Applicative Tape where
+
+  -- | You can lift any value you like into a single-element tape! With some
+  -- | help from `bind`, you can then construct larger tapes.
+  pure x = Tape [] x []
+
+
+instance bindTape :: Bind Tape where
+
+  -- | Create a Tape of Tapes, then flatten them into a Tape. The read
+  -- | head is placed over the left-most position in the tapes that
+  -- | are produced by the currently-focussed element.
+  bind :: forall a b. Tape a -> (a -> Tape b) -> Tape b
+  bind (Tape ls x rs) f =
+    let (Tape ls' x' rs') = f x
+        ls'' = A.reverse <<< toArray <<< f =<< ls
+        rs'' =               toArray <<< f =<< rs
+    in
+      Tape (ls' <> ls'') x' (rs' <> rs'')
+
+
+instance monadTape :: Monad Tape
 
 
 instance extendTape :: Extend Tape where

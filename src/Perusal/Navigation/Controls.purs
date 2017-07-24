@@ -1,4 +1,4 @@
-module Perusal.Navigation (movement) where
+module Perusal.Navigation.Controls (movement) where
 
 import Prelude (type (~>), otherwise)
 
