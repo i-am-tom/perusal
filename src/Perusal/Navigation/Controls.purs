@@ -1,8 +1,8 @@
 module Perusal.Navigation.Controls (movement) where
 
-import Prelude (type (~>), otherwise)
+import Prelude (type (~>), otherwise, pure)
 
-import Data.Maybe (fromMaybe, Maybe(Just))
+import Data.Maybe (fromMaybe, Maybe)
 import Data.Set (member, Set)
 import Data.Tape (Tape, left, right)
 
@@ -26,7 +26,7 @@ movement deck = step deck (fold go keysDown deck)
   where next :: forall b. Set Int -> Tape b -> Maybe (Tape b)
         next keys | 37 `member` keys = left
                   | 39 `member` keys = right
-                  | otherwise        = Just
+                  | otherwise        = pure
 
         -- | Based on the key presses, move the tape either left,
         -- | right, or in neither direction (depending on whether we
