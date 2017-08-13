@@ -2,13 +2,15 @@ module Perusal.HTML (render) where
 
 import Prelude
 
+import Control.Monad.Eff (Eff)
 import Control.Monad.Eff.Class (class MonadEff, liftEff)
 import DOM (DOM)
 import DOM.Node.Element (setAttribute)
+import DOM.Node.Types (Element)
 import Data.Foldable (for_)
-import Data.Maybe (Maybe(..))
-import Data.Tuple (Tuple(Tuple))
-import Math (pi)
+import Data.Maybe (Maybe, maybe)
+import Data.Tuple (Tuple(Tuple), fst)
+import Math as M
 import Perusal.Config.Types (Style(Style), RenderFrame)
 
 -- | When all is said and all is done, we still need to turn a `Style`
@@ -23,22 +25,27 @@ toCSS (Style { opacity, rotate, scale, translateX, translateY })
       <> show translateX <> ", "
       <> show translateY <> ") "
 
-    <> "rotate(" <> show (rotate * 2.0 * pi) <> "rad) "
+    <> "rotate(" <> show (round $ rotate * 2.0 * M.pi) <> "rad) "
     <> "scale(" <> show scale <> ")"
+  where
 
--- | Ignore the `group` and `set` here if it's scary; chances are that
--- | you'll use `Array` for both! This function takes a list of
--- | `Element` / `Style` groups, and... well, it styles the elements.
+    round :: Number -> Number
+    round = (_ / 1000.0) <<< M.round <<< (1000.0 * _)
+
+-- | Now, we get to the interesting bit. Thanks to the shape of our
+-- | `RenderFrame` type, we're kinda spoilt at this point. We hide the
+-- | last container, show the new one, and then apply all the styles.
+-- | Nothing scary to do, no frightening tricks.
 render :: forall eff m
         . MonadEff (dom :: DOM | eff) m
        => { last :: Maybe RenderFrame, now :: RenderFrame }
        -> m Unit
-render { last, now: Tuple c ks } =
-  liftEff
-     $ hide last
-    *> setAttribute "style" "" c
-    *> for_ ks \(Tuple elements style) ->
-         for_ elements $ setAttribute "style" (toCSS style)
+render { last, now: Tuple container keyframes } =
+  liftEff $ maybe (pure unit) (hide <<< fst) last
+         *> setAttribute "style" "" container
+         *> for_ keyframes \(Tuple elements style) ->
+              for_ elements $ setAttribute "style" (toCSS style)
   where
-    hide (Just (Tuple e _)) = setAttribute "style" "display: none" e
-    hide Nothing = pure unit
+
+    hide :: forall eff'. Element -> Eff (dom :: DOM | eff') Unit
+    hide = setAttribute "style" "display: none"
