@@ -1,36 +1,107 @@
-module Perusal.Navigation.Controls (movement) where
+module Perusal.Navigation.Controls where
 
-import Prelude (type (~>), otherwise, pure)
+import Prelude hiding (when)
 
-import Data.Maybe (fromMaybe, Maybe)
-import Data.Set (member, Set)
-import Data.Tape (Tape, left, right)
-
-import FRP.Behavior (Behavior, step, sample_)
-import FRP.Behavior.Keyboard (keys)
-import FRP.Event (Event, fold)
+import Control.Alt ((<|>))
+import Control.Monad.Eff (Eff)
+import Control.Monad.Eff.Class (class MonadEff, liftEff)
+import Control.Monad.Reader.Class (class MonadReader, ask)
+import Control.MonadZero (guard)
+import Data.Maybe (Maybe(Just, Nothing), isNothing)
+import Data.Set (Set, intersection, isEmpty, member)
+import Data.Tuple (Tuple(Tuple), snd)
+import FRP (FRP)
+import FRP.Event (Event, create, filter, fold, mapMaybe, sampleOn_, withLast)
 import FRP.Event.Keyboard (down)
+import FRP.Event.Time (withTime)
 
--- | An event, fired on every keydown, containing the currently-
--- | pressed keys.  We use these to find whether left or right have
--- | been pressed, and hence whether we should be moving
-keysDown :: Event (Set Int)
-keysDown = sample_ keys down
 
--- | A behaviour describing the progression of the user through the
--- | slide deck via presses of either left or right.
-movement :: forall a. Tape a -> Behavior (Tape a)
-movement deck = step deck (fold go keysDown deck)
+-- | Supa-simple data type to generalise `fromInput` to the choice of
+-- | "left" or "right". Yes, it's isomorphic to `Boolean`, but I'm
+-- | gonna put code clarity above minor code optimisation.
+data Direction = Prev | Next
 
-        -- | Which way should we move? Left, right, or neither?
-  where next :: forall b. Set Int -> Tape b -> Maybe (Tape b)
-        next keys | 37 `member` keys = left
-                  | 39 `member` keys = right
-                  | otherwise        = pure
 
-        -- | Based on the key presses, move the tape either left,
-        -- | right, or in neither direction (depending on whether we
-        -- | have reached either end of the tape or another key was
-        -- | pressed).
-        go :: Set Int -> Tape ~> Tape
-        go keys tape = fromMaybe tape (next keys tape)
+-- | Calculate whether two sets overlap. This isn't that exciting.
+overlaps :: forall a. Ord a => Set a -> Set a -> Boolean
+overlaps x y = not isEmpty $ x `intersection` y
+
+
+-- | This little rascal tells us if any directional keys are being
+-- | pressed, and, if so, whether they correspond to `Next` or `Prev`.
+-- | Note the `MonadReader m` - we query the "global config" for our
+-- | key sets here.
+fromInput :: forall m r
+           . MonadReader { prev :: Set Int, next :: Set Int | r } m
+          => m (Event Direction)
+fromInput = ask <#> \{ prev, next } -> mapMaybe (go prev next) down
+  where
+
+    go prev next key
+      | key `member` prev = Just Prev
+      | key `member` next = Just Next
+      | otherwise         = Nothing
+
+
+-- | Chances are that you _don't_ want a `Direction`, and you're
+-- | really more interested in another type. Well, now's your
+-- | chance to shine. *Go get 'em, tiger*.
+fromDirection :: forall a. a -> a -> Direction -> a
+fromDirection prev next = case _ of Prev -> prev
+                                    Next -> next
+
+
+-- | Here's an interesting problem to solve: you have an event being
+-- | sampled according to the tick of a second stream. You get results
+-- | back, but you have no idea _when_ they happened; with this little
+-- | menace, we can solve that little problem.
+withDelay :: forall a b. Event b -> Event a -> Event (Tuple Int a)
+withDelay sampler e = go <$> withTime (sampleOn_ (withTime e) sampler)
+  where
+
+    -- Calculate a duration!
+    go :: { time :: Int, value :: { time :: Int, value :: a } }
+       -> Tuple Int a
+    go { time: now, value: { time: start, value } } =
+      Tuple (now - start) value
+
+
+-- | Filter out events from a stream that occur while a `Boolean` behavior is
+-- | `false`.
+when :: forall a. Event Boolean -> Event a -> Event a
+when ps xs = mapMaybe id $ (\p x -> guard p $> x) <$> ps <*> xs
+
+
+-- | Map over an event, but carry an accumulator value with you. This
+-- | can be pretty useful if, for example, you want to attach IDs to
+-- | events: `mapAccum (\x i -> Tuple (i + 1) (Tuple x i)) 0`.
+mapAccum :: forall a b c
+          . (a -> b -> Tuple b c)
+         -> Event a
+         -> b
+         -> Event c
+mapAccum f xs acc = mapMaybe snd
+  $ fold (\a (Tuple b _) -> pure <$> f a b) xs
+  $ Tuple acc Nothing
+
+
+-- | Create an event that can block itself. This is pretty exciting if
+-- | you want to, say, disable key presses during an animation...
+withBlocking :: forall a eff m
+              . MonadEff (frp :: FRP | eff) m
+             => Event a
+             -> m { event :: Event a
+                  , push  :: Boolean -> Eff (frp :: FRP | eff) Unit
+                  }
+withBlocking action = liftEff create <#>
+  \ks -> ks { event = when ks.event action }
+
+
+-- | When you use `withLast` on a `Maybe` stream, you probably don't
+-- | get the desired behaviour. _This_ function is `withLast`, but will
+-- | give you the `last` that was a `Just`!
+withLastJust :: forall a
+              . Event (Maybe a)
+             -> Event (Maybe { now :: a, last :: Maybe a })
+withLastJust e = (filter isNothing e $> Nothing)
+  <|> (pure <$> withLast (mapMaybe id e))
