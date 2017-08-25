@@ -35,6 +35,7 @@
     "purescript-behaviors": "^5.1.0",
     "purescript-argonaut": "^3.0.0",
     "purescript-dom-classy": "^2.1.0",
-    "purescript-easings": "^2.1.0"
+    "purescript-easings": "^2.1.0",
+    "purescript-profunctor-lenses": "^3.6.0"
   }
 }

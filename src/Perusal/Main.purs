@@ -18,33 +18,46 @@ import Data.Argonaut.Core (Json)
 import Data.Argonaut.Decode.Class (decodeJson)
 import Data.Chain (Chain, left, right)
 import Data.Either (Either(..), either)
+import Data.Int (toNumber)
 import Data.Maybe (Maybe(..), maybe)
 import Data.Set (Set, singleton)
+import Data.Time.Duration (Milliseconds(..))
 import Data.Traversable (sequence)
 import Data.Tuple (Tuple(..))
 import FRP (FRP)
-import FRP.Event (Event, mapMaybe, subscribe)
+import FRP.Event (Event, mapAccum, mapMaybe, subscribe)
 import FRP.Event.Time (animationFrame)
-import Perusal.Config.Types (Config, Keyframe, Milliseconds(..), RenderFrame, freeze, fromConfigSpec, reverse, toChain)
+import Perusal.Config.Types (Config, Keyframe, RenderFrame, freeze, fromConfigSpec, reverse, toChain)
 import Perusal.HTML (render)
-import Perusal.Navigation.Controls (fromDirection, fromInput, mapAccum, withBlocking, withDelay, withLastJust)
+import Perusal.Navigation.Controls (fromDirection, fromInput, withBlocking, withDelay, withLastJust)
 
 -- | Well, well, well... Look who decided to join the party! Happy to
 -- | have you :) If you're using _this_ function, you've written some
 -- | PureScript! All you need is `main = fromConfig ...`, where `...`
 -- | is your big `Config` value. Simples :)
-fromConfig :: forall eff
-            . Config
-           -> Eff (alert :: ALERT, dom :: DOM, frp :: FRP | eff) Unit
-fromConfig config = runReaderT (animate config)
-  { prev: singleton 37, next: singleton 39 }
+fromConfig :: forall eff.
+              Config
+           -> Eff ( alert :: ALERT
+                  , dom   :: DOM
+                  , frp   :: FRP
+                  | eff
+                  ) Unit
+fromConfig config
+  = runReaderT (animate config)
+      { prev: singleton 37
+      , next: singleton 39
+      }
 
 
 -- | Given some JavaScript object (i.e. the result of `JSON.parse` or
 -- | actual primitives), make the magic happen!
-fromJS :: forall eff
-        . Json
-       -> Eff (alert :: ALERT, dom :: DOM, frp :: FRP | eff) Unit
+fromJS :: forall eff.
+          Json
+       -> Eff ( alert :: ALERT
+              , dom   :: DOM
+              , frp   :: FRP
+              | eff
+              ) Unit
 fromJS json = do
   window'   <- window
   document' <- htmlDocumentToDocument <$> document window'
@@ -54,8 +67,8 @@ fromJS json = do
                  Left error -> alert error window'
 
 
-parse :: forall document eff m
-       . IsParentNode document
+parse :: forall document eff m.
+         IsParentNode document
       => MonadEff (dom :: DOM | eff) m
       => MonadError String m
       => document
@@ -73,15 +86,18 @@ parse document = decodeJson
 -- | event to handle the status of the animation queue. Within this
 -- | function, `event` is a Bool event stream indicating whether the
 -- | animation queue be free.
-animate :: forall eff m
-         . MonadEff (frp :: FRP, dom :: DOM | eff) m
-        => MonadReader { prev :: Set Int, next :: Set Int } m
+animate :: forall eff m.
+           MonadEff ( frp :: FRP
+                    , dom :: DOM
+                    | eff
+                    ) m
+        => MonadReader
+            { prev :: Set Int
+            , next :: Set Int
+            } m
         => Config
         -> m Unit
 animate config = do
-  -- Block the input according to this `isBusy` function.
-  { event: inputs, push: isFree } <- fromInput >>= withBlocking
-
   let
     -- Convert a `Config` to a `Chain`, create an event that yields
     -- the frames that we move over, remove the invalid steps!
@@ -90,23 +106,26 @@ animate config = do
       $ mapAccum go (fromDirection left' right <$> inputs)
       $ toChain config
 
-    left' :: forall f
-           . Functor f
+    left' :: forall f.
+             Functor f
           => Chain (f Keyframe)
           -> Maybe (Tuple (Chain (f Keyframe)) (f Keyframe))
     left' = map (map (map reverse)) <$> left
 
-    go :: forall a b. (a -> Maybe (Tuple a b)) -> a -> Tuple a (Maybe b)
+    go :: forall a b.
+         (a -> Maybe (Tuple a b))
+       -> a
+       -> Tuple a (Maybe b)
     go f cs = maybe (Tuple cs Nothing) (map Just) (f cs)
 
     navigation' :: Event (Maybe RenderFrame)
     navigation' = sequence
-      <<< (\(Tuple delay xs) -> freeze (Milliseconds delay) <$> xs)
+      <<< (\(Tuple delay xs) -> freeze (Milliseconds $ toNumber delay) <$> xs)
       <$> withDelay animationFrame navigation
 
   liftEff
     $ subscribe (withLastJust navigation')
     $ maybe (isFree true) -- Queue is empty!
-            (render >=> \_ -> isFree false)
+        (render >=> \_ -> isFree false)
 
   liftEff $ isFree true

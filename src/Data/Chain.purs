@@ -101,12 +101,12 @@ instance bindChain :: Bind Chain where
 
 instance monadChain :: Monad Chain
 
+
 instance extendChain :: Extend Chain where
   extend :: forall a b. (Chain a -> b) -> Chain a -> Chain b
   extend f xs = Chain $ Tuple (unfoldr (go <<< left)  xs)
                               (unfoldr (go <<< right) xs)
     where go = map \(Tuple x _) -> Tuple (f x) x
-
 
 
 -- | Transform a `Foldable` type into a `Chain`, where ethe pointer is

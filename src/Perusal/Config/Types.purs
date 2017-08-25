@@ -11,21 +11,19 @@ import DOM.Classy.ParentNode (class IsParentNode, querySelector, querySelectorAl
 import DOM.Node.NodeList (toArray)
 import DOM.Node.Types (Element)
 import Data.Chain (Chain, fromFoldable)
-import Data.Int (toNumber)
+import Data.Lens.Iso.Newtype (_Newtype)
+import Data.Lens.Record (prop)
+import Data.Lens.Setter ((%~))
+import Data.Lens.Traversal (traversed)
 import Data.Maybe (Maybe(..), maybe)
 import Data.Newtype (class Newtype, unwrap, wrap)
 import Data.StrMap (toUnfoldable)
+import Data.Symbol (SProxy(..))
+import Data.Time.Duration (Milliseconds(..))
 import Data.Traversable (traverse)
 import Data.Tuple (Tuple(..), uncurry)
 import Easing (polynomial)
 import Perusal.Config.Parser.Types (ConfigSpec, KeyframeSpec(KeyframeSpec), SceneSpec(..), StyleSpec(StyleSpec))
-
-
--- | Newtype all the things! Just to make it absolutely clear that
--- | we're talking about milliseconds, not seconds, let's wrap up the
--- | value in a delightful little overcoat.
-newtype Milliseconds = Milliseconds Int
-derive instance newtypeMilliseconds :: Newtype Milliseconds _
 
 
 -- | `Style` is pretty basic, as types go. All it does is present a
@@ -127,7 +125,7 @@ fromKeyframeSpec document (KeyframeSpec ks) =
   where
 
     duration :: m Milliseconds
-    duration = if ks.duration < 0
+    duration = if ks.duration < 0.0
       then throwError "Negative duration!"
       else pure (Milliseconds ks.duration)
 
@@ -145,13 +143,16 @@ fromKeyframeSpec document (KeyframeSpec ks) =
 -- | animate a backwards movement! Nothing too fancy, so don't dwell
 -- | too much on this one!
 reverse :: Keyframe -> Keyframe
-reverse (Keyframe ks) = Keyframe (ks { styles = styles })
+reverse = lens %~ (_ <<< sub 1.0)
   where
 
-    -- `progress` now goes backwards from 1 to 0! Two `map`s: one to
-    -- get to the `Styler`, then another to get to `Number -> Style`.
-    styles :: Array Styler
-    styles = map (_ <<< (1.0 - _)) <$> ks.styles
+    lens :: ((Number -> Style) -> Number -> Style)
+         -> Keyframe
+         -> Keyframe
+    lens = _Newtype
+       <<< prop (SProxy :: SProxy "styles")
+       <<< traversed
+       <<< traversed
 
 
 -- | `Styler` values are fun, but, sooner or later, we'll want to fix
@@ -165,7 +166,7 @@ freeze elapsed (Keyframe { duration, styles }) =
   where
 
     progress :: Number
-    progress = toNumber (unwrap elapsed) / toNumber (unwrap duration)
+    progress = unwrap elapsed / unwrap duration
 
 
 -- | Scenes are like your traditional presentation "slides": each one

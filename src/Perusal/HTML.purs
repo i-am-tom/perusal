@@ -7,9 +7,9 @@ import Control.Monad.Eff.Class (class MonadEff, liftEff)
 import DOM (DOM)
 import DOM.Node.Element (setAttribute)
 import DOM.Node.Types (Element)
-import Data.Foldable (for_)
+import Data.Foldable (class Foldable, for_)
 import Data.Maybe (Maybe, maybe)
-import Data.Tuple (Tuple(Tuple), fst)
+import Data.Tuple (Tuple(Tuple), fst, uncurry)
 import Math as M
 import Perusal.Config.Types (Style(Style), RenderFrame)
 
@@ -36,16 +36,31 @@ toCSS (Style { opacity, rotate, scale, translateX, translateY })
 -- | `RenderFrame` type, we're kinda spoilt at this point. We hide the
 -- | last container, show the new one, and then apply all the styles.
 -- | Nothing scary to do, no frightening tricks.
-render :: forall eff m
-        . MonadEff (dom :: DOM | eff) m
+render :: forall eff m.
+          MonadEff (dom :: DOM | eff) m
        => { last :: Maybe RenderFrame, now :: RenderFrame }
        -> m Unit
-render { last, now: Tuple container keyframes } =
-  liftEff $ maybe (pure unit) (hide <<< fst) last
-         *> setAttribute "style" "" container
-         *> for_ keyframes \(Tuple elements style) ->
-              for_ elements $ setAttribute "style" (toCSS style)
+render { last, now: Tuple container keyframes }
+  = liftEff
+      $ maybe (pure unit) (hide <<< fst) last
+     *> show container
+     *> for_ keyframes (uncurry set)
   where
 
-    hide :: forall eff'. Element -> Eff (dom :: DOM | eff') Unit
+    hide :: forall eff'.
+            Element
+         -> Eff (dom :: DOM | eff') Unit
     hide = setAttribute "style" "display: none"
+
+    show :: forall eff'.
+            Element
+         -> Eff (dom :: DOM | eff') Unit
+    show = setAttribute "style" ""
+
+    set :: forall eff' f.
+           Foldable f
+        => f Element
+        -> Style
+        -> Eff (dom :: DOM | eff') Unit
+    set elements style = for_ elements $
+      setAttribute "style" (toCSS style)

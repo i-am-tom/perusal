@@ -49,7 +49,7 @@ instance decodeJsonStyleSpec :: DecodeJson StyleSpec where
 -- | `StrMap StyleSpec`. The `String` key is a query selector for the
 -- | element being animated. Nothing too frightening :)
 newtype KeyframeSpec = KeyframeSpec
-  { duration :: Int
+  { duration :: Number
   , styles   :: StrMap StyleSpec
   }
 
