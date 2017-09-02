@@ -1,11 +1,14 @@
 module Perusal.Config.Parser.Types where
 
-import Data.Foreign.Class (class Decode)
+import Control.Applicative (pure)
+import Control.Bind (bind, (=<<))
+import Data.Foreign.Class (class Decode, decode)
 import Data.Foreign.Generic (defaultOptions, genericDecode)
 import Data.Foreign.Generic.Types (Options)
+import Data.Foreign.Index (readProp)
+import Data.Function (($))
 import Data.Generic.Rep (class Generic)
 import Data.StrMap (StrMap)
-import Data.Tuple (Tuple)
 
 
 opts :: Options
@@ -14,14 +17,25 @@ opts
     { unwrapSingleConstructors = true
     }
 
+newtype SelectorSpec
+  = SelectorSpec
+    { from :: Number
+    , to :: Number
+    }
+
+instance decodeSelectorSpec :: Decode SelectorSpec where
+  decode x = do
+    from <- decode =<< readProp "from" x
+    to <- decode =<< readProp "to" x
+    pure $ SelectorSpec {from, to}
 
 newtype StyleSpec
   = StyleSpec
-    { opacity    :: Tuple Number Number
-    , scale      :: Tuple Number Number
-    , rotate     :: Tuple Number Number
-    , translateX :: Tuple Number Number
-    , translateY :: Tuple Number Number
+    { opacity    :: SelectorSpec
+    , scale      :: SelectorSpec
+    , rotate     :: SelectorSpec
+    , translateX :: SelectorSpec
+    , translateY :: SelectorSpec
     }
 
 
