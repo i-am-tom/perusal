@@ -1,141 +1,139 @@
 module Perusal.Navigation.Controls where
 
-import Control.Apply (lift2)
-import Control.Monad.Eff (Eff)
 import Control.Monad.Eff.Class (class MonadEff, liftEff)
 import Control.Monad.Reader.Class (class MonadReader, ask)
-import Control.MonadZero (guard)
 import Data.Int (toNumber)
-import Data.Lens.Record (prop)
-import Data.Lens.Setter ((%~))
 import Data.Maybe (Maybe(Just, Nothing))
-import Data.Newtype (unwrap)
 import Data.Set (Set, intersection, isEmpty, member)
-import Data.Symbol (SProxy(..))
-import Data.Time.Duration (Milliseconds(..))
-import Data.Tuple (Tuple(Tuple))
+import Data.Tuple (Tuple, fst, snd)
 import FRP (FRP)
-import FRP.Event (Event, create, mapAccum, mapMaybe, sampleOn_)
+import FRP.Event (Event, create, mapMaybe, sampleOn, sampleOn_, subscribe)
 import FRP.Event.Keyboard (down)
 import FRP.Event.Time (withTime)
 import Prelude hiding (when)
 
 
--- | Supa-simple data type to generalise `fromInput` to the choice of
--- | "left" or "right". Yes, it's isomorphic to `Boolean`, but I'm
--- | gonna put code clarity above minor code optimisation.
 data Direction
   = Prev
   | Next
 
 
--- | Calculate whether two sets overlap. This isn't that exciting.
-overlaps :: forall a.
-            Ord a
-         => Set a
-         -> Set a
-         -> Boolean
+overlaps
+  :: forall a
+   . Ord a
+  => Set a
+  -> Set a
+  -> Boolean
 overlaps x y
-  = not isEmpty (x `intersection` y)
+  = not isEmpty
+  $ x `intersection` y
 
 
--- | This little rascal tells us if any directional keys are being
--- | pressed, and, if so, whether they correspond to `Next` or `Prev`.
--- | Note the `MonadReader m` - we query the "global config" for our
--- | key sets here.
-fromInput :: forall m r.
-             MonadReader { prev :: Set Int
-                         , next :: Set Int
-                         | r
-                         } m
-          => m (Event Direction)
 fromInput
-  = ask <#> \{ next, prev }
-      -> mapMaybe (go prev next) down
-
+  :: forall m r
+   . MonadReader
+       { prev :: Set Int
+       , next :: Set Int
+       | r
+       } m
+  => m (Event Direction)
+fromInput
+  = ask <#> \{ next, prev } -> mapMaybe (go prev next) down
   where
 
+    go :: Set Int -> Set Int -> Int -> Maybe Direction
     go prev next key
       | key `member` prev = Just Prev
       | key `member` next = Just Next
       | otherwise         = Nothing
 
 
--- | Chances are that you _don't_ want a `Direction`, and you're
--- | really more interested in another type. Well, now's your
--- | chance to shine. *Go get 'em, tiger*.
-fromDirection :: forall a.
-                 a
-              -> a
-              -> Direction
-              -> a
+fromDirection
+  :: forall a
+   . a
+  -> a
+  -> Direction
+  -> a
 fromDirection prev next
   = case _ of
       Prev -> prev
       Next -> next
 
 
--- | Here's an interesting problem to solve: you have an event being
--- | sampled according to the tick of a second stream. You get results
--- | back, but you have no idea _when_ they happened; with this little
--- | menace, we can solve that little problem.
-withDelay :: forall a b.
-             Event b
-          -> Event a
-          -> Event (Tuple Int a)
-withDelay sampler event
-  = go <$> withTime (sampleOn_ (withTime event) sampler)
-  where
-
-    -- Calculate a duration!
-    go :: forall x.
-          { time  :: Int
-          , value :: { time  :: Int
-                     , value :: x } }
-       -> Tuple Int x
-    go { time: now, value: { time: start, value } }
-      = Tuple (now - start) value
+sampleIf
+  :: forall p x
+   . (p -> x -> Boolean)
+  -> Event p
+  -> Event x
+  -> Event x
+sampleIf f s
+  = mapMaybe id
+  <<< sampleOn s
+  <<< map \x p -> if f p x then Just x
+                           else Nothing
 
 
--- | Filter out events from a stream that occur while a `Boolean`
--- | behavior is `false`.
-when :: forall a.
-        Event Boolean
-     -> Event a
-     -> Event a
-when ps
-  = sampleOn ps $ map \x p ->
-      if p then Just x
-           else Nothing
-
--- | When you use `withLast` on a `Maybe` stream, you probably don't
--- | get the desired behaviour. _This_ function is `withLast`, but
--- | will give you the `last` that was a `Just`!
-withLastJust :: forall a.
-                Event (Maybe a)
-             -> Event (Maybe { now :: a, last :: Maybe a })
-withLastJust e
-  = mapAccum go e Nothing
-  where
-
-    go next last
-      | Just now <- next = Tuple next (Just { now, last })
-      | otherwise        = Tuple last Nothing
+withTime'
+  :: forall a
+   . Event a
+  -> Event
+       { time  :: Number
+       , value :: a
+       }
+withTime'
+  = map (\ev -> ev { time = toNumber ev.time })
+  <<< withTime
 
 
--- | Now we have the `withLastJust` helper, we can implement blocking
--- | by checking the last successful event's time and duration. If our
--- | current event's time is after that, we're good to go.
-withBlocking :: forall r.
-                Event { duration :: Milliseconds | r }
-             -> m (Event { duration :: Milliseconds | r })
 withBlocking
-  = withLastJust <<< mapAccum go <<< prepare <<< withTime
+  :: forall a b eff m
+   . MonadEff (frp :: FRP | eff) m
+  => Event a
+  -> (Event a -> Event (Tuple Number b))
+  -> m (Event b)
+withBlocking event process
+  = do
+      blocker <- liftEff create
+
+      let
+        unblocked :: Event a
+        unblocked
+          =   _.value
+          <$> sampleIf expired blocker.event stamped
+
+        processed :: Event (Tuple Number b)
+        processed = process unblocked
+
+      liftEff $ subscribe (withTime' processed) \{ time, value } ->
+        blocker.push (time + fst value)
+
+      liftEff $ blocker.push 0.0
+
+      pure $ snd <$> processed
   where
 
-    prepare :: _
-    prepare { time, value: value@{ duration } }
-      = { start: toNumber time
-        , end: toNumber time + unwrap duration
-        , value
-        }
+    stamped :: Event { time :: Number, value :: a }
+    stamped = withTime' event
+
+    expired :: Number
+            -> { time :: Number, value :: a }
+            -> Boolean
+    expired expiry { time }
+      = expiry < time
+
+
+withDelay :: forall a b
+           . Event a
+          -> Event b
+          -> Event { delay :: Number, value :: a }
+withDelay event sampler
+  = prepare <$> withTime' (sampleOn_ (withTime' event) sampler)
+  where
+
+    prepare
+      :: { time :: Number
+         , value :: { time :: Number, value :: a }
+         }
+      -> { delay :: Number, value :: a }
+    prepare { time, value: { time: time', value } }
+      = { delay: time - time', value }

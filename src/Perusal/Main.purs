@@ -2,6 +2,7 @@ module Perusal.Main (fromJS, fromConfig) where
 
 import Prelude
 
+import Control.Comonad.Env.Trans (mapEnvT)
 import Control.Monad.Eff (Eff)
 import Control.Monad.Eff.Class (class MonadEff, liftEff)
 import Control.Monad.Error.Class (class MonadError, throwError)
@@ -22,14 +23,13 @@ import Data.Int (toNumber)
 import Data.Maybe (Maybe(..), maybe)
 import Data.Set (Set, singleton)
 import Data.Time.Duration (Milliseconds(..))
-import Data.Traversable (sequence)
+import Data.Traversable (sequence, traverse)
 import Data.Tuple (Tuple(..))
 import FRP (FRP)
 import FRP.Event (Event, mapAccum, mapMaybe, subscribe)
 import FRP.Event.Time (animationFrame)
 import Perusal.Config.Types (Config, Keyframe, RenderFrame, freeze, fromConfigSpec, reverse, toChain)
-import Perusal.HTML (render)
-import Perusal.Navigation.Controls (fromDirection, fromInput, withBlocking, withDelay, withLastJust)
+import Perusal.Navigation.Controls (fromDirection, fromInput, withBlocking, withDelay)
 
 -- | Well, well, well... Look who decided to join the party! Happy to
 -- | have you :) If you're using _this_ function, you've written some
@@ -98,34 +98,33 @@ animate :: forall eff m.
         => Config
         -> m Unit
 animate config = do
-  let
-    -- Convert a `Config` to a `Chain`, create an event that yields
-    -- the frames that we move over, remove the invalid steps!
-    navigation :: Event (Tuple Element Keyframe)
-    navigation = mapMaybe id
-      $ mapAccum go (fromDirection left' right <$> inputs)
-      $ toChain config
+  movements <- map (fromDirection left' right) <$> fromInput
+  blocker <- withBlocking movements navigate'
 
+  subscribe blocker render
+
+  where
     left' :: forall f.
              Functor f
           => Chain (f Keyframe)
           -> Maybe (Tuple (Chain (f Keyframe)) (f Keyframe))
     left' = map (map (map reverse)) <$> left
 
+    navigate' movements
+      = mapMaybe (\{ delay, value } -> freeze (Milliseconds delay) <$> value)
+      $ (_ `withDelay` animationFrame)
+      $ mapAccum go movements
+      $ toChain config
+
+    -- navigate' movements
+    --   = map (traverse \{ delay, value } ->
+    --       freeze (Milliseconds delay) <$> value)
+    --   $ withDelay animationFrame
+    --   $ mapAccum go movements
+    --   $ toChain config
+
     go :: forall a b.
-         (a -> Maybe (Tuple a b))
+          (a -> Maybe (Tuple a b))
        -> a
        -> Tuple a (Maybe b)
     go f cs = maybe (Tuple cs Nothing) (map Just) (f cs)
-
-    navigation' :: Event (Maybe RenderFrame)
-    navigation' = sequence
-      <<< (\(Tuple delay xs) -> freeze (Milliseconds $ toNumber delay) <$> xs)
-      <$> withDelay animationFrame navigation
-
-  liftEff
-    $ subscribe (withLastJust navigation')
-    $ maybe (isFree true) -- Queue is empty!
-        (render >=> \_ -> isFree false)
-
-  liftEff $ isFree true
