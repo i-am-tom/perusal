@@ -2,21 +2,19 @@ module Perusal.HTML (render) where
 
 import Prelude
 
-import Control.Monad.Eff (Eff)
 import Control.Monad.Eff.Class (class MonadEff, liftEff)
 import DOM (DOM)
 import DOM.Node.Element (setAttribute)
 import DOM.Node.Types (Element)
-import Data.Foldable (class Foldable, for_)
+import Data.Foldable (traverse_)
 import Data.Maybe (Maybe, maybe)
-import Data.Tuple (Tuple(Tuple), fst, uncurry)
 import Math as M
-import Perusal.Config.Types (Style(Style), RenderFrame)
+import Perusal.Config.Types (FrozenStyle(..), Style(Style))
 
 -- | When all is said and all is done, we still need to turn a `Style`
--- | into CSS to attach it to the elements. It doesn't feel right to
--- | use `Show` here, as we'd probably want a clearer representation,
--- | so we'll write this little scamp. Take a `Style`, make a CSS.
+-- into CSS to attach it to the elements. It doesn't feel right to
+-- use `Show` here, as we'd probably want a clearer representation,
+-- so we'll write this little scamp. Take a `Style`, make a CSS.
 toCSS :: Style -> String
 toCSS (Style { opacity, rotate, scale, translateX, translateY })
   =  "opacity: " <> show opacity <> "; "
@@ -28,39 +26,49 @@ toCSS (Style { opacity, rotate, scale, translateX, translateY })
     <> "rotate(" <> show (round $ rotate * 2.0 * M.pi) <> "rad) "
     <> "scale(" <> show scale <> ")"
   where
-
+    -- TODO: benchmark. I'm not sure this is a good idea...
     round :: Number -> Number
     round = (_ / 1000.0) <<< M.round <<< (1000.0 * _)
 
--- | Now, we get to the interesting bit. Thanks to the shape of our
--- | `RenderFrame` type, we're kinda spoilt at this point. We hide the
--- | last container, show the new one, and then apply all the styles.
--- | Nothing scary to do, no frightening tricks.
-render :: forall eff m.
-          MonadEff (dom :: DOM | eff) m
-       => { last :: Maybe RenderFrame, now :: RenderFrame }
-       -> m Unit
-render { last, now: Tuple container keyframes }
-  = liftEff
-      $ maybe (pure unit) (hide <<< fst) last
-     *> show container
-     *> for_ keyframes (uncurry set)
+-- | When we want to render a frame, we need the container, and the
+-- styles to apply.
+type RenderFrame
+  = { container :: Element
+    , styles :: Array FrozenStyle
+    }
+
+-- | Render the current state of the application as a change from the
+-- previous state. Hide the old container, show the new one. Set the
+-- appropriate styles. A nice TODO here would be to check whether the
+-- containers match and not bother with the visibility flipping.
+render
+  :: forall eff m.
+     MonadEff (dom :: DOM | eff) m
+  => { last :: Maybe RenderFrame, now :: RenderFrame }
+  -> m Unit
+render { last, now: { container, styles } }
+  =  maybe (pure unit) (hide <<< _.container) last
+  *> show container
+  *> traverse_ set styles
   where
 
-    hide :: forall eff'.
-            Element
-         -> Eff (dom :: DOM | eff') Unit
-    hide = setAttribute "style" "display: none"
+    -- | Hide the given element with `display: none`.
+    hide :: Element -> m Unit
+    hide = liftEff
+       <<< setAttribute "style" "display: none"
 
-    show :: forall eff'.
-            Element
-         -> Eff (dom :: DOM | eff') Unit
-    show = setAttribute "style" ""
+    -- | Show the given element by removing the `style`.
+    show :: Element -> m Unit
+    show = liftEff
+       <<< setAttribute "style" ""
 
-    set :: forall eff' f.
-           Foldable f
-        => f Element
-        -> Style
-        -> Eff (dom :: DOM | eff') Unit
-    set elements style = for_ elements $
-      setAttribute "style" (toCSS style)
+    -- | Apply a given style to a given element!
+    styler :: Style -> Element -> m Unit
+    styler style
+      = liftEff
+      <<< setAttribute "style" (toCSS style)
+
+   -- | Set specific styling on an element.
+    set :: FrozenStyle -> m Unit
+    set (FrozenStyle { elements, style })
+      = traverse_ (styler style) elements

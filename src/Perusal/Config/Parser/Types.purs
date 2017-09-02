@@ -1,112 +1,134 @@
 module Perusal.Config.Parser.Types where
 
-import Prelude hiding (const)
-
-import Control.Alt ((<|>))
-import Data.Argonaut.Core (Json)
-import Data.Argonaut.Decode.Class (class DecodeJson, decodeJson)
-import Data.Argonaut.Decode.Combinators ((.?))
-import Data.Either (Either)
+import Data.Foreign.NullOrUndefined (NullOrUndefined)
+import Data.Lens (Lens', Traversal', _Just, traversed)
+import Data.Lens.Iso.Newtype (_Newtype)
+import Data.Lens.Record (prop)
 import Data.Newtype (class Newtype)
 import Data.StrMap (StrMap)
-import Data.Traversable (traverse)
-import Data.Tuple (Tuple(Tuple))
+import Data.Symbol (SProxy(..))
+import Prelude ((<<<))
+import Simple.JSON (class ReadForeign)
 
+---
 
--- | A `StyleSpec` is the building block of animations in your JSON!
--- | The `Tuple` values indicate a `start` and `end` value for the
--- | properties, which is rather neat. Oh, one more thing: rotation is
--- | normalised such that `1.0` is a 2r/360º rotation. _C'est tout!_
-newtype StyleSpec = StyleSpec
-  { opacity    :: Tuple Number Number
-  , scale      :: Tuple Number Number
-  , rotate     :: Tuple Number Number
-  , translateX :: Tuple Number Number
-  , translateY :: Tuple Number Number
-  }
+type Transition
+  = { to   :: Number
+    , from :: Number
+    }
 
+transition_to :: Lens' Transition Number
+transition_to = prop (SProxy :: SProxy "to")
+
+transition_from :: Lens' Transition Number
+transition_from = prop (SProxy :: SProxy "from")
+
+---
+
+newtype StyleSpec
+  = StyleSpec
+    { opacity    :: NullOrUndefined Transition
+    , rotate     :: NullOrUndefined Transition
+    , scale      :: NullOrUndefined Transition
+    , translateX :: NullOrUndefined Transition
+    , translateY :: NullOrUndefined Transition
+    }
 
 derive instance newtypeStyleSpec :: Newtype StyleSpec _
+derive newtype instance readForeignStyleSpec
+  :: ReadForeign StyleSpec
 
+styleSpec_opacity :: Traversal' StyleSpec Transition
+styleSpec_opacity
+    = _Newtype
+  <<< prop (SProxy :: SProxy "opacity")
+  <<< _Newtype
+  <<< _Just
 
--- | Decode a JSON blob into a `StyleSpec`. Well, *try* to, anyway. It
--- | could all go horribly wrong, of course. _Luckily_, `Argonaut` has
--- | some pretty great errors, so it'll let you know.
-instance decodeJsonStyleSpec :: DecodeJson StyleSpec where
-  decodeJson = decodeJson >=> \json -> map StyleSpec $
-    { opacity: _, rotate: _, scale: _, translateX: _, translateY: _ }
-      <$> ( (json .? "opacity"    >>= decodeJson) <|> fallback 1.0 )
-      <*> ( (json .? "rotate"     >>= decodeJson) <|> fallback 0.0 )
-      <*> ( (json .? "scale"      >>= decodeJson) <|> fallback 1.0 )
-      <*> ( (json .? "translateX" >>= decodeJson) <|> fallback 0.0 )
-      <*> ( (json .? "translateY" >>= decodeJson) <|> fallback 0.0 )
-    where
+styleSpec_rotate :: Traversal' StyleSpec Transition
+styleSpec_rotate
+    = _Newtype
+  <<< prop (SProxy :: SProxy "rotate")
+  <<< _Newtype
+  <<< _Just
 
-      fallback :: forall a f. Applicative f => a -> f (Tuple a a)
-      fallback x = pure $ Tuple x x
+styleSpec_scale :: Traversal' StyleSpec Transition
+styleSpec_scale
+    = _Newtype
+  <<< prop (SProxy :: SProxy "scale")
+  <<< _Newtype
+  <<< _Just
 
--- | A `KeyframeSpec` defines a `duration` for which to animate the
--- | `StrMap StyleSpec`. The `String` key is a query selector for the
--- | element being animated. Nothing too frightening :)
-newtype KeyframeSpec = KeyframeSpec
-  { duration :: Number
-  , styles   :: StrMap StyleSpec
-  }
+styleSpec_translateX :: Traversal' StyleSpec Transition
+styleSpec_translateX
+    = _Newtype
+  <<< prop (SProxy :: SProxy "translateX")
+  <<< _Newtype
+  <<< _Just
 
+styleSpec_translateY :: Traversal' StyleSpec Transition
+styleSpec_translateY
+    = _Newtype
+  <<< prop (SProxy :: SProxy "translateY")
+  <<< _Newtype
+  <<< _Just
+
+---
+
+newtype KeyframeSpec
+  = KeyframeSpec
+    { duration :: Number
+    , styles   :: StrMap StyleSpec
+    }
 
 derive instance newtypeKeyframeSpec :: Newtype KeyframeSpec _
+derive newtype instance readForeignKeyframeSpec
+  :: ReadForeign KeyframeSpec
 
+keyframeSpec_duration :: Lens' KeyframeSpec Number
+keyframeSpec_duration
+    = _Newtype
+  <<< prop (SProxy :: SProxy "duration")
 
--- | This one's a lottle easier to decode as we don't have any data
--- | that we wouldn't mind people skipping. If you can't give us a
--- | duration and a set of styles to animate, you probably don't want
--- | a `Keyframe`!
-instance decodeJsonKeyframeSpec :: DecodeJson KeyframeSpec where
-  decodeJson = decodeJson >=> \json -> map KeyframeSpec $
-    { duration: _, styles: _ }
-      <$> json .? "duration"
-      <*> json .? "styles"
+keyframeSpec_styles :: Traversal' KeyframeSpec StyleSpec
+keyframeSpec_styles
+    = _Newtype
+  <<< prop (SProxy :: SProxy   "styles")
+  <<< traversed
 
+---
 
--- | The `SceneSpec` is kinda the same thing as the "slide" in your
--- | Favourite Presentation-Editing Software™. The `container` tells
--- | us how to find the element that acts as our "slide", and the
--- | `keyframes` are the animations that will happen on the slide. We
--- | do have one _slight_ advantage over the usual software, though...
--- | your animations aren't confined to the slide! You can have an
--- | element independent of your slides that can be animated at any
--- | point. That's pretty neat, I think.
-newtype SceneSpec = SceneSpec
-  { container :: String
-  , keyframes :: Array KeyframeSpec
-  }
-
+newtype SceneSpec
+  = SceneSpec
+    { container :: String
+    , keyframes :: NullOrUndefined (Array KeyframeSpec)
+    }
 
 derive instance newtypeSceneSpec :: Newtype SceneSpec _
+derive newtype instance readForeignSceneSpec
+  :: ReadForeign SceneSpec
 
+sceneSpec_container :: Lens' SceneSpec String
+sceneSpec_container
+    =_Newtype
+  <<< prop (SProxy :: SProxy "container")
 
--- | So, we can decode a JSON blob into some `SceneSpec` type without
--- | much trouble. Maybe we want boring slides? No problem; we can
--- | simply use an empty `keyframes` array, or omit it entirely!
-instance decodeJsonSceneSpec :: DecodeJson SceneSpec where
-  decodeJson = decodeJson >=> \json -> map SceneSpec $
-    { container: _, keyframes: _ }
-      <$>  (json .? "container" >>=          decodeJson)
-      <*> ((json .? "keyframes" >>= traverse decodeJson) <|> pure [])
+sceneSpec_keyframe :: Traversal' SceneSpec KeyframeSpec
+sceneSpec_keyframe
+    = _Newtype
+  <<< prop (SProxy :: SProxy "keyframes")
+  <<< _Newtype
+  <<< _Just
+  <<< traversed
 
+---
 
--- | The entire configuration for a slideshow is really just an array
--- | of `SceneSpec` values. A presentation is a set of slides to show.
--- | A show of slides. A *slideshow*. Sedimentary, my dear Watson.
-newtype ConfigSpec = ConfigSpec (Array SceneSpec)
-
+newtype ConfigSpec
+  = ConfigSpec (Array SceneSpec)
 
 derive instance newtypeConfigSpec :: Newtype ConfigSpec _
+derive newtype instance readForeignConfigSpec
+  :: ReadForeign ConfigSpec
 
-
--- | Oh, this little thing? Pretty snazzy, right? Decode a JSON array
--- | into an `Array SceneSpec`, then wrap it up in a `ConfigSpec`.
--- | *Bosh*.
-instance decodeJsonConfigSpec :: DecodeJson ConfigSpec where
-  decodeJson :: Json -> Either String ConfigSpec
-  decodeJson = map ConfigSpec <<< decodeJson
+configSpec :: Traversal' ConfigSpec SceneSpec
+configSpec = _Newtype <<< traversed
