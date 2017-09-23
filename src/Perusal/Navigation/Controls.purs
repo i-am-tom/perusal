@@ -93,7 +93,7 @@ withBlocking
   -> (Event a -> Event { period :: Number, value :: b })
   ->  Event b
 withBlocking event process
-  = fix \(blocker :: Event Number) ->
+  = fix \blocker ->
       let
         stamped :: Event { time :: Number, value :: a }
         stamped = withTime event

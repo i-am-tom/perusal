@@ -1,0 +1,13 @@
+section {
+  background: #FFF;
+  bottom: 0px;
+  left: 0px;
+  /*position: absolute;*/
+  right: 0px;
+  top: 0px;
+}
+
+h1, h2 {
+  margin-top: 40px;
+  text-align: center;
+}

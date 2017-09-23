@@ -1,0 +1,88 @@
+[
+  {
+    "container": "#intro",
+    "keyframes": [
+      {
+        "duration": 500,
+        "styles": {
+          "h1": {
+            "opacity": {
+              "from": 0,
+              "to": 1
+            }
+          },
+
+          "h1 > small": {
+            "translateY": {
+              "from": 1000,
+              "to": 0
+            }
+          }
+        }
+      }
+    ]
+  }
+
+, {
+    "container": "#what-is-this",
+    "keyframes": [
+      {
+        "duration": 400,
+        "styles": {
+          "p.p2-1": {
+            "opacity": {
+              "from": 0,
+              "to": 1
+            },
+
+            "rotate": {
+              "from": 2,
+              "to": 0
+            }
+          },
+
+          "p.p2-2": {
+            "scale": {
+              "from": 0,
+              "to": 2
+            }
+          }
+        }
+      },
+
+      {
+        "duration": 500,
+        "styles": {
+          "p.p2-2 > small": {
+            "translateX": {
+              "from": 0,
+              "to": -5000
+            }
+          }
+        }
+      }
+    ]
+  }
+
+, {
+    "container": "#do-i-purescript",
+    "keyframes": [
+      {
+        "duration": 0,
+        "styles": {
+          "p": {
+            "opacity": {
+              "from": 0,
+              "to": 1
+            }
+          }
+        }
+      }
+    ]
+  }
+
+, {
+    "container": "#linda",
+    "keyframes": []
+  }
+]

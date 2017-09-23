@@ -1,0 +1,42 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <title>FULLY JSON EXAMPLE</title>
+    <link rel="stylesheet" href="../style.css" />
+    <script src="../../dist.js"></script>
+  </head>
+  <body>
+    <section id="intro">
+      <h1>
+        Hello, world!
+        <small>A little <code>Perusal</code> by Tom Harding</small>
+      </h1>
+      <p>Navigate with left and right arrows...</p>
+    </section>
+    <section id="what-is-this">
+      <h2>What is this?</h2>
+      <p class="p2-1">
+        This is a package for producing slideshows!
+      </p>
+      <p class="p2-2">
+        <small>Ignoring libraries... </small>
+        This is 100% PureScript - no FFI!
+      </p>
+    </section>
+    <section id="do-i-purescript">
+      <h2>... So, I have to write PureScript?</h2>
+      <p>You should, but you don't have to...</p>
+      <p>This slideshow is entirely JSON-configured!</p>
+    </section>
+    <section id="linda">
+      <h2>Believe it, Linda!</h2>
+    </section>
+
+    <script>
+      fetch('config.json')
+        .then(data => data.json())
+        .then(data => Perusal.fromJSON(data)())
+        .catch(error => alert(`:( ${ error }`))
+    </script>
+  </body>
+</html>
