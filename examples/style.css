@@ -1,6 +1,7 @@
 section {
   background: #FFF;
   bottom: 0px;
+  display: none;
   left: 0px;
   /*position: absolute;*/
   right: 0px;

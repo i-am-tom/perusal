@@ -32,7 +32,7 @@
     "purescript-nonempty": "^4.0.0",
     "purescript-profunctor": "^3.2.0",
     "purescript-unfoldable": "^3.0.0",
-    "purescript-behaviors": "v6.0.0",
+    "purescript-behaviors": "v6.2.0",
     "purescript-argonaut": "^3.0.0",
     "purescript-dom-classy": "^2.1.0",
     "purescript-easings": "^2.1.0",

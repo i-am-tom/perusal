@@ -3,157 +3,101 @@ module Perusal.Main (fromJSON) where
 import Prelude
 
 import Control.Monad.Eff (Eff)
-import Control.Monad.Eff.Class (class MonadEff, liftEff)
-import Control.Monad.Error.Class (class MonadError, throwError)
+import Control.Monad.Error.Class (throwError)
 import Control.Monad.Except (runExcept)
 import Control.Monad.Except.Trans (runExceptT)
-import Control.Monad.Reader.Class (class MonadReader)
-import Control.Monad.Reader.Trans (runReaderT)
 import DOM (DOM)
 import DOM.HTML (window)
 import DOM.HTML.Types (ALERT, htmlDocumentToDocument)
 import DOM.HTML.Window (alert, document)
-import DOM.Node.Types (Element)
-import Data.Chain (Chain, left, right')
+import Data.Chain (Chain, left, right)
 import Data.Either (Either(..))
 import Data.Filterable (filtered)
 import Data.Foreign (Foreign)
-import Data.Lens ((%~))
 import Data.List.NonEmpty (head)
 import Data.Maybe (Maybe(..), maybe)
-import Data.Newtype (unwrap)
 import Data.Set (Set, singleton)
 import Data.Tuple (Tuple(..))
+import Data.Tuple.Nested (type (/\))
 import FRP (FRP)
-import FRP.Event (Event, mapAccum, subscribe, withLast)
-import Perusal.Config.Parser.Types (ConfigSpec)
-import Perusal.Config.Types (Config, ContainedKeyframe(..), FrozenStyle, containedKeyframe_keyframe, freeze, fromConfigSpec, reverse, toChain)
-import Perusal.HTML (render)
-import Perusal.Navigation.Controls (fromDirection, fromInput, withBlocking, withDelay)
+import FRP.Event (Event, mapAccum)
+import FRP.Event.Time (debounceWith)
+import Perusal.Config.Types as Types
+import Perusal.Animation (withDelay)
+import Perusal.HTML (init)
+import Perusal.Navigation.Controls (direct, fromInput)
 import Simple.JSON (read)
 
--- | Run a slideshow from a "JSON object". Worth noting that what this
--- _really_ means is that the user provides the output of a call to
--- JSON.parse.
 fromJSON
-  :: forall eff.
-     Foreign
-  -> Eff ( alert :: ALERT
-         , dom   :: DOM
-         , frp   :: FRP
-         | eff
-         ) Unit
-fromJSON json
-  = do
-      window'   <- window
-      document' <- htmlDocumentToDocument <$> document window'
+ :: forall eff
+  . Foreign
+ -> Eff (alert :: ALERT, dom :: DOM, frp :: FRP | eff) Unit
+fromJSON json = do
+    window'   <- window
+    document' <- htmlDocumentToDocument <$> document window'
 
-      let
-        interpreted
-          :: forall m.
-             MonadError String m
-          => m ConfigSpec
-        interpreted
-          = case runExcept (read json) of
-              Left  error  -> throwError (show (head error))
-              Right result -> pure result
+    let
+      interpreted = case runExcept (read json) of
+        Left  error  -> throwError (show (head error))
+        Right result -> pure result
 
-      -- From ConfigSpec comes Config, all being well.
-      parsed <- runExceptT (interpreted >>= fromConfigSpec document')
+    parsed <- runExceptT (interpreted >>= Types.fromConfigSpec document')
 
-      case parsed of
-        Right config -> runReaderT (animate config) controls
-        Left  error  -> alert error window'
+    case parsed of
+      Right config -> animate controls config
+      Left  error  -> alert error window'
   where
+    controls = { prev: singleton 37, next: singleton 39 }
 
-    -- The starter set of keyboard controls for a presentation.
-    controls :: { prev :: Set Int, next :: Set Int }
-    controls
-      = { prev: singleton 37
-        , next: singleton 39
-        }
-
--- | Given a Config object, bootstrap the presentation and begin
--- listening for key presses.
 animate
-  :: forall eff m.
-     MonadEff
-       ( frp :: FRP
-       , dom :: DOM
-       | eff
-       ) m
-  => MonadReader
-       { prev :: Set Int
-       , next :: Set Int
-       } m
-  => Config
-  -> m Unit
-animate config
-  = do
-      inputs <- fromInput
+  :: forall eff
+   . { prev :: Set Int, next :: Set Int }
+  -> Types.Config
+  -> Eff (frp :: FRP, dom :: DOM | eff) Unit
+animate inputs config = init config *> do
+  let frozen = withLast (map freezer delayed)
+  void $ subscribe frozen render
 
-      let
-        -- The inputs are mapped to movement functions that may or may
-        -- not work.
-        movements
-          :: Event (Chain ContainedKeyframe
-                      -> Maybe (Tuple (Chain ContainedKeyframe)
-                                      ContainedKeyframe))
-        movements
-          = fromDirection (left reverser) right' <$> inputs
+  where
+    movements = direct (reverser <<< left) right <$> fromInput inputs
 
-        -- Apply those movements to the config chain, and throw away
-        -- any that fail. Now, we have the set of stages to render.
-        fixed :: Event ContainedKeyframe
-        fixed
-          = withBlocking movements \movement -> prepare
-              <$> filtered (mapAccum folder movement (toChain config))
+    positions = filtered <<< mapAccum \mover chain ->
+      map (Tuple chain Nothing) (map Just) (mover chain)
 
-        -- We can add "delay" to them to calculate progression through
-        -- an animation.
-        delayed :: Event
-                     { delay :: Number
-                     , value :: ContainedKeyframe
-                     }
-        delayed = withDelay fixed
+    reverser (Types.Keyframe k@{ stylers }) =
+      Types.Keyframe (k { stylers = map Types.reverse stylers })
 
-        -- With this delay, we can "freeze" the styler to the state
-        -- it should have for this moment in the animation.
-        frozen :: Event
-                    { container :: Element
-                    , styles :: Array FrozenStyle
-                    }
-        frozen
-          = delayed <#> \{ delay, value } ->
-              let ContainedKeyframe { container, keyframe } = value
-              in { container, styles: freeze delay keyframe }
+    prepare value@{ keyframe }
+      = { value, period: keyframe.duration }
 
-      -- Add the renderer, throw away the canceller.
-      liftEff (void (subscribe (withLast frozen) render))
+    delayed = withDelay (debounceWith (map prepare <<< positions)) movements
+{-
+    let
+      movements :: forall a. Event (Chain a -> Maybe (Chain a /\ a))
+      movements = direct left right <$> fromInput inputs
 
-    where
-      -- When we move left, we "flip" the frame to animate backwards.
-      reverser :: ContainedKeyframe -> ContainedKeyframe
-      reverser = containedKeyframe_keyframe %~ reverse
+      positions :: _ -> Event (Chain _)
+      positions moves
+        = filtered
+        $ mapAccum folder moves
+        $ Types.toChain config
 
-      -- The "duration" of the frame is how long we'll block for.
-      prepare
-        :: ContainedKeyframe
-        -> { period :: Number
-           , value  :: ContainedKeyframe
-           }
-      prepare value@(ContainedKeyframe { keyframe })
-        = { value
-          , period: (unwrap keyframe).duration
-          }
+      delayed
+        = withDelay
+        $ debounceWith (map prepare <<< positions) (?f movements)
 
-      -- Apply the movement functions and carry the result along the
-      -- stream. Here's how we'll save "state".
-      folder
-        :: (Chain ContainedKeyframe
-              -> Maybe (Tuple (Chain ContainedKeyframe)
-                              ContainedKeyframe))
-        -> Chain ContainedKeyframe
-        -> Tuple (Chain ContainedKeyframe) (Maybe ContainedKeyframe)
-      folder mover chain
-        = maybe (Tuple chain Nothing) (map Just) (mover chain)
+    -- void $ subscribe (withLast (map freezer delayed)) render
+    pure unit
+
+  where
+    freezer { delay, value: { container, keyframe } } =
+      { container, styles: Types.freeze delay keyframe }
+
+    reverser (Types.Keyframe s@{ stylers })
+      = Types.Keyframe (s { stylers = map Types.reverse stylers })
+
+    prepare value@{ keyframe }
+      = { value, period: keyframe.duration }
+
+    folder mover chain = maybe (Tuple chain Nothing) (map Just) (mover chain)
+-}
